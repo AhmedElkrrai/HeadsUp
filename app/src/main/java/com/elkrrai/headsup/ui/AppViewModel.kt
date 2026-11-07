@@ -13,7 +13,7 @@ import com.elkrrai.headsup.data.Store
 sealed interface Screen {
     data object Home : Screen
     data object ReminderEditor : Screen
-    data class PlaceEditor(val placeId: String?) : Screen
+    data class PlaceEditor(val placeId: String?, val forTrip: Boolean = false) : Screen
 }
 
 /** Unsaved state of the reminder editor (kept here so it survives a trip to the place editor). */
@@ -22,6 +22,8 @@ data class Draft(
     val title: String,
     val note: String,
     val placeId: String?,
+    /** New reminders only: "Next visit" (skip the current visit) instead of "Once in place". */
+    val whenNextVisit: Boolean = false,
 )
 
 data class PermissionState(val location: Boolean, val background: Boolean, val notifications: Boolean) {
@@ -33,6 +35,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var tab by mutableIntStateOf(0)
     var draft by mutableStateOf<Draft?>(null)
     var tripPlaceId by mutableStateOf<String?>(null)
+
+    /** The "Alerts are on" card shrinks to its badge after a few seconds; this survives tab switches. */
+    var statusCollapsed by mutableStateOf(false)
     var tripAlertM by mutableIntStateOf(1000)
     var permissions by mutableStateOf(readPermissions())
 
@@ -46,12 +51,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** New reminder; [sharedText] is the list shared from WhatsApp, if any. */
-    fun newReminder(sharedText: String? = null) {
+    fun newReminder(sharedText: String? = null, title: String? = null) {
         val place = Store.reminders.value.maxByOrNull { it.createdAt }?.placeId?.takeIf { Store.place(it) != null }
             ?: Store.places.value.firstOrNull()?.id
         draft = Draft(
             id = null,
-            title = if (sharedText != null) "Groceries" else "",
+            title = title ?: if (sharedText != null) "Shared note" else "",
             note = sharedText?.trim().orEmpty(),
             placeId = place,
         )
@@ -69,15 +74,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun saveDraft() {
         val d = draft ?: return
         val placeId = d.placeId ?: return
+        if (d.title.isBlank()) return // never save an empty reminder
         val existing = d.id?.let { Store.reminder(it) }
-        Store.upsertReminder(
-            (existing ?: Reminder(id = Store.newId(), title = "", placeId = placeId)).copy(
-                title = d.title.trim().ifBlank { "Reminder" },
-                note = d.note.trim(),
-                placeId = placeId,
-            )
+        val saved = (existing ?: Reminder(id = Store.newId(), title = "", placeId = placeId)).copy(
+            title = d.title.trim().ifBlank { "Reminder" },
+            note = d.note.trim(),
+            placeId = placeId,
         )
+        Store.upsertReminder(saved)
         closeEditor()
+        // "When: Next visit" only applies when creating (the Edit screen has its own Snooze card).
+        if (existing == null && d.whenNextVisit) armNextVisitIfHere(getApplication(), saved.id, placeId)
     }
 
     fun closeEditor() {
@@ -85,8 +92,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.Home
     }
 
-    fun openPlaceEditor(placeId: String?) {
-        screen = Screen.PlaceEditor(placeId)
+    fun openPlaceEditor(placeId: String?, forTrip: Boolean = false) {
+        screen = Screen.PlaceEditor(placeId, forTrip)
     }
 
     /** After saving/cancelling a place: back to the reminder editor if one is in progress. */

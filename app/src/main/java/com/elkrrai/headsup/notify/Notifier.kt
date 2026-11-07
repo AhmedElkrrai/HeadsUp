@@ -24,7 +24,7 @@ object Notifier {
     fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CH_ERRAND, "Errand reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+            NotificationChannel(CH_ERRAND, "Place reminders", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Shown when you arrive near a place with a pending reminder"
                 enableVibration(true)
             }
@@ -72,6 +72,24 @@ object Notifier {
         } catch (_: SecurityException) {
         }
     }
+
+    /** "Test alert" button: proves notifications work without walking anywhere. */
+    fun notifyTest(ctx: Context) {
+        if (!Permissions.hasNotifications(ctx)) return
+        val n = NotificationCompat.Builder(ctx, CH_ERRAND)
+            .setSmallIcon(R.drawable.ic_stat_headsup)
+            .setContentTitle("Test alert")
+            .setContentText("Heads Up is working. Alerts like this appear when you get near a place.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(TEST_NOTIF_ID, n)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    private const val TEST_NOTIF_ID = 999001
 
     fun cancel(ctx: Context, reminderId: String) {
         NotificationManagerCompat.from(ctx).cancel(reminderId.hashCode())

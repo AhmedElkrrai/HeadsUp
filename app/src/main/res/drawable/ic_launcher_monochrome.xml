@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One-colour version for Android 13 themed icons: the system tints the opaque parts. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:translateX="54"
+        android:translateY="56">
+
+        <group android:rotation="-70">
+            <group android:translateY="-17">
+                <path
+                    android:fillColor="#FFFFFFFF"
+                    android:pathData="M-0.07,-17.05L-4.87,-3.85L-0.55,-3.85L-0.76,0L0.77,0L3.77,-8.25L-0.55,-8.25Z" />
+            </group>
+        </group>
+        <group android:rotation="-35">
+            <group android:translateY="-17">
+                <path
+                    android:fillColor="#FFFFFFFF"
+                    android:pathData="M-0.07,-17.05L-4.87,-3.85L-0.55,-3.85L-0.76,0L0.77,0L3.77,-8.25L-0.55,-8.25Z" />
+            </group>
+        </group>
+        <group android:translateY="-17">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M-0.07,-17.05L-4.87,-3.85L-0.55,-3.85L-0.76,0L0.77,0L3.77,-8.25L-0.55,-8.25Z" />
+        </group>
+        <group android:rotation="35">
+            <group android:translateY="-17">
+                <path
+                    android:fillColor="#FFFFFFFF"
+                    android:pathData="M-0.07,-17.05L-4.87,-3.85L-0.55,-3.85L-0.76,0L0.77,0L3.77,-8.25L-0.55,-8.25Z" />
+            </group>
+        </group>
+        <group android:rotation="70">
+            <group android:translateY="-17">
+                <path
+                    android:fillColor="#FFFFFFFF"
+                    android:pathData="M-0.07,-17.05L-4.87,-3.85L-0.55,-3.85L-0.76,0L0.77,0L3.77,-8.25L-0.55,-8.25Z" />
+            </group>
+        </group>
+    </group>
+
+    <!-- Pin with the centre cut out (even-odd fill) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,42c-7.7,0 -14,6.3 -14,14 0,10.5 14,26 14,26s14,-15.5 14,-26c0,-7.7 -6.3,-14 -14,-14zM49,56a5,5 0,1 0,10 0a5,5 0,1 0,-10 0z" />
+</vector>
