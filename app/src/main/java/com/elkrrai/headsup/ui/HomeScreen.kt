@@ -120,7 +120,7 @@ fun HomeScreen(vm: AppViewModel, onRequestPermissions: () -> Unit) {
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             // No "+" on an empty Reminders list: the big "Add your first reminder" button does that job.
-            if (vm.tab == 2 || (vm.tab == 0 && reminders.isNotEmpty())) {
+            if ((vm.tab == 2 && places.isNotEmpty()) || (vm.tab == 0 && reminders.isNotEmpty())) {
                 // Just a "+": same button on Reminders and Places (the description is for screen readers).
                 FloatingActionButton(
                     onClick = { if (vm.tab == 0) vm.newReminder() else vm.openPlaceEditor(null) },
@@ -225,15 +225,18 @@ internal fun StatusCard(vm: AppViewModel, onRequestPermissions: () -> Unit) {
 
     // When everything is fine, show the full card for 5 s, then collapse it to its shield badge and
     // slide that away too. It returns on the next app launch, and always stays while something needs fixing.
-    LaunchedEffect(ok, vm.statusCollapsed) {
+    // The "Alerts are on" confirmation is shown exactly once, ever: the first time all permissions are
+    // granted. A permission problem always shows the card, whenever it happens.
+    LaunchedEffect(ok, vm.statusCollapsed, vm.alertsIntroDone) {
         if (!ok) {
             vm.statusCollapsed = false
-        } else if (!vm.statusCollapsed) {
+        } else if (!vm.alertsIntroDone && !vm.statusCollapsed) {
             delay(5_000)
             vm.statusCollapsed = true
+            vm.markAlertsIntroDone()
         }
     }
-    val collapsed = ok && vm.statusCollapsed
+    val collapsed = ok && (vm.alertsIntroDone || vm.statusCollapsed)
     val fraction by animateFloatAsState(
         targetValue = if (collapsed) 0f else 1f,
         animationSpec = tween(380, easing = FastOutSlowInEasing),
@@ -449,6 +452,11 @@ private fun PlacesTab(vm: AppViewModel, places: List<Place>, reminders: List<Rem
     // Holding a card for 1.2 s asks for confirmation here; nothing is deleted until the user agrees.
     var pendingDelete by remember { mutableStateOf<Place?>(null) }
 
+    if (places.isEmpty()) {
+        EmptyPlaces(vm)
+        return
+    }
+
     pendingDelete?.let { place ->
         // Say exactly which reminders go with the place (first three, then "+N more").
         val doomed = reminders.filter { it.placeId == place.id }
@@ -475,9 +483,6 @@ private fun PlacesTab(vm: AppViewModel, places: List<Place>, reminders: List<Rem
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        if (places.isEmpty()) {
-            item { Text("No places yet. Tap the + button to pin one.", style = MaterialTheme.typography.bodyLarge, color = Muted) }
-        }
         items(places, key = { it.id }) { p ->
             val n = reminders.count { it.placeId == p.id && !it.done }
             Card(
@@ -512,8 +517,6 @@ private fun PlacesTab(vm: AppViewModel, places: List<Place>, reminders: List<Rem
 
 // ---------------- Trip ----------------
 
-private val alarmPresets = listOf(500 to "500 m", 1000 to "1 km", 2000 to "2 km", 3000 to "3 km")
-
 @Composable
 private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions: () -> Unit) {
     val ctx = LocalContext.current
@@ -536,7 +539,16 @@ private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions:
                 showSaved = false
             },
             onDismiss = { showSaved = false },
+            onPickOnMap = {
+                showSaved = false
+                vm.openPlaceEditor(null, forTrip = true)
+            },
         )
+    }
+
+    if (t != null) {
+        ActiveTrip(t) { TripService.stop(ctx) }
+        return
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -544,34 +556,41 @@ private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions:
         Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        if (t != null) {
-            val accent = if (t.arrived) MaterialTheme.colorScheme.error else NeonCyan
-            val shape = RoundedCornerShape(22.dp)
-            Column(
-                Modifier.fillMaxWidth().clip(shape)
-                    .background(if (t.arrived) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer)
-                    .border(1.dp, accent.copy(alpha = 0.5f), shape).padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                SectionLabel(if (t.arrived) "Almost there" else "Trip in progress")
-                Text(t.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = InkBright)
-                Text(
-                    if (t.distanceM == null) "Waiting for GPS…"
-                    else TripService.formatDistance(t.distanceM) + " away" + (t.etaMin?.let { " · about $it min" } ?: ""),
-                    style = MaterialTheme.typography.titleMedium, color = accent,
-                )
-                Text("Alarm at ${TripService.formatDistance(t.alertM)} from destination", style = MaterialTheme.typography.bodySmall, color = Muted)
-                Button(
-                    onClick = { TripService.stop(ctx) },
-                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = OnNeon),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).heightIn(min = 52.dp),
-                ) { Text(if (t.arrived) "Dismiss alarm" else "Stop trip", fontWeight = FontWeight.Bold) }
-            }
-        } else {
-            Text("Pick where you get off. An alarm rings before you get there.", color = Color(0xFFA9B8C7))
-
-            // Destination
-            Card(
+        run {
+            // Destination: a compact row once chosen (with Change); two ways to choose before that.
+            if (place != null) {
+                val rowShape = RoundedCornerShape(22.dp)
+                Row(
+                    Modifier.fillMaxWidth().clip(rowShape).background(SurfaceCard).border(1.dp, Outline, rowShape)
+                        .padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(Modifier.size(44.dp).background(Color(0xFF2A0F25), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(22.dp), tint = NeonMagenta)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        SectionLabel("Destination")
+                        Text(
+                            place.name,
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = InkBright,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        val away = here?.distanceToAsDouble(GeoPoint(place.lat, place.lng))?.toInt()
+                        if (away != null) {
+                            Text(TripService.formatDistance(away) + " away", style = MaterialTheme.typography.bodyMedium, color = Muted)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { showSaved = true },
+                        shape = CircleShape,
+                        border = BorderStroke(1.5.dp, NeonCyan),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        modifier = Modifier.heightIn(min = 40.dp),
+                    ) { Text("Change", fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+                }
+            } else Card(
                 shape = CardShape,
                 colors = CardDefaults.cardColors(containerColor = SurfaceCard),
                 border = BorderStroke(1.dp, Outline),
@@ -596,58 +615,24 @@ private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions:
                             }
                         }
                     }
-                    // One card, two ways to choose: from your saved places, or by pinning on the map.
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (places.isNotEmpty()) {
-                            OutlinedButton(
-                                onClick = { showSaved = true },
-                                shape = CircleShape,
-                                border = BorderStroke(1.5.dp, NeonCyan),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = NeonCyan,
-                                ),
-                                // Tight side padding so "Saved places" fits on one line next to its icon.
-                                contentPadding = PaddingValues(horizontal = 6.dp),
-                                modifier = Modifier.weight(1f).heightIn(min = 52.dp),
-                            ) {
-                                Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(18.dp))
-                                Text("Saved places", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 4.dp))
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = { vm.openPlaceEditor(null, forTrip = true) },
-                            shape = CircleShape,
-                            border = BorderStroke(1.5.dp, NeonCyan),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                            modifier = Modifier.weight(1f).heightIn(min = 52.dp),
-                        ) {
-                            Icon(painterResource(R.drawable.ic_map), null, Modifier.size(18.dp))
-                            Text(
-                                if (places.isEmpty()) "Choose on the map" else "On the map",
-                                fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(start = 4.dp),
-                            )
-                        }
+                    // One button opens the sheet: your saved places plus "Choose on the map".
+                    OutlinedButton(
+                        onClick = { showSaved = true },
+                        shape = CircleShape,
+                        border = BorderStroke(1.5.dp, NeonCyan),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = NeonCyan,
+                        ),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(20.dp))
+                        Text("Choose destination", fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                    SectionLabel("Ring the alarm", Modifier.weight(1f))
-                    Text(
-                        TripService.formatDistance(vm.tripAlertM) + " before arriving",
-                        fontWeight = FontWeight.Bold, color = NeonCyan,
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    alarmPresets.forEach { (m, label) ->
-                        Choice(label, vm.tripAlertM == m, onClick = { vm.tripAlertM = m }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), hPad = 4.dp)
-                    }
-                }
-            }
-
+            AlarmRadarCard(place?.name, vm.tripAlertM) { vm.tripAlertM = it }
         }
     }
 
@@ -670,7 +655,7 @@ private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions:
                 .then(if (place != null) Modifier.glow(NeonCyan, 16.dp, shape) else Modifier),
         ) {
             Icon(painterResource(R.drawable.ic_navigate), null, Modifier.size(22.dp))
-            Text(if (place == null) "  Pick a destination" else "  Start trip", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text("  Start trip", fontSize = 17.sp, fontWeight = FontWeight.Bold)
         }
     }
     }

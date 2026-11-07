@@ -48,7 +48,7 @@ fun MapPicker(
             }
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
-            zoomController.setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             minZoomLevel = 3.0
             // Dark map to match the app: invert the light OpenStreetMap tiles.
             overlayManager.tilesOverlay.setColorFilter(org.osmdroid.views.overlay.TilesOverlay.INVERT_COLORS)

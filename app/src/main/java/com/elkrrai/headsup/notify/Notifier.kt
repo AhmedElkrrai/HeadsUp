@@ -21,6 +21,10 @@ object Notifier {
     const val EXTRA_OPEN_REMINDER = "open_reminder"
     const val EXTRA_ALARM = "alarm"
 
+    /** Set when a place reminder fires; the main screen consumes it to open on Reminders next time it appears. */
+    @Volatile
+    var reminderAlertPending = false
+
     fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
@@ -46,6 +50,7 @@ object Notifier {
 
     fun notifyErrand(ctx: Context, r: Reminder, place: Place) {
         if (!Permissions.hasNotifications(ctx)) return
+        reminderAlertPending = true
         val open = PendingIntent.getActivity(
             ctx, r.id.hashCode(),
             Intent(ctx, MainActivity::class.java)

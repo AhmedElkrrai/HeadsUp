@@ -2,7 +2,10 @@ package com.elkrrai.headsup.ui
 
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -114,7 +117,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
     val scope = rememberCoroutineScope()
     val existing = remember(placeId) { placeId?.let { Store.place(it) } }
 
-    var name by remember { mutableStateOf(existing?.name.orEmpty()) }
+    var name by remember { mutableStateOf(existing?.name ?: vm.placeNameSuggestion.orEmpty()) }
     var pin by remember { mutableStateOf(existing?.let { GeoPoint(it.lat, it.lng) }) }
     var radius by remember { mutableIntStateOf(existing?.radiusM ?: 150) }
     var query by remember { mutableStateOf("") }
@@ -132,6 +135,10 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
     var me by remember { mutableStateOf<GeoPoint?>(null) }
     var userTouchedMap by remember { mutableStateOf(existing != null) }
     var nameFocused by remember { mutableStateOf(false) }
+
+    // Zen mode: only the zen and locate buttons stay on screen, so you can roam the map.
+    var zen by remember { mutableStateOf(false) }
+    val sheetShown by animateFloatAsState(if (zen) 0f else 1f, tween(300, easing = FastOutSlowInEasing), label = "sheetShown")
     val focusManager = LocalFocusManager.current
 
     // The "tap the map" hint is shown for 3 s when the screen opens, then hidden. After 10 s with
@@ -176,6 +183,15 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
     }
 
     /** Round locate button: zoom right in on where you are. Doesn't move the pin. */
+    fun toggleZen() {
+        zen = !zen
+        if (zen) {
+            focusManager.clearFocus() // close the keyboard
+            hits = emptyList()
+            message = null
+        }
+    }
+
     fun zoomToMe() {
         if (!Permissions.hasLocation(ctx)) {
             message = "Allow location access first (use the status card on the main screen)."
@@ -255,7 +271,14 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
         ready = true // no location available: show the default map anyway
     }
 
-    BackHandler { vm.closePlaceEditor() }
+    // A new place (or trip destination) starts pinned on where you are; tap the map to move it.
+    // Silent without location permission.
+    LaunchedEffect(Unit) {
+        if (existing == null && Permissions.hasLocation(ctx)) pinMyLocation()
+    }
+
+    // Back leaves zen mode first, then the screen.
+    BackHandler { if (zen) zen = false else vm.closePlaceEditor() }
 
     Box(
         Modifier.fillMaxSize().background(Bg).pointerInput(Unit) {
@@ -270,7 +293,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
     ) {
         if (ready) {
             MapPicker(
-                pin = pin, radiusM = if (forTrip) 0 else radius, focus = focus ?: start, focusKey = focusKey,
+                pin = pin, radiusM = if (forTrip) vm.tripAlertM else radius, focus = focus ?: start, focusKey = focusKey,
                 focusZoom = focusZoom, me = me,
                 onPick = {
                     userTouchedMap = true
@@ -287,8 +310,9 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
         }
 
         // ---- top: back button + search pill ----
+        AnimatedVisibility(visible = !zen, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
         Column(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -372,6 +396,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                 )
             }
         }
+        }
 
         // ---- bottom: locate button + sheet ----
         // Only lift the sheet above the keyboard while typing the name; when searching, the
@@ -381,7 +406,9 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                 .then(if (nameFocused) Modifier.imePadding() else Modifier),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    // With the sheet gone (zen), keep the buttons clear of the gesture bar.
+                    .then(if (zen) Modifier.navigationBarsPadding() else Modifier),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
@@ -399,7 +426,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                         animationSpec = tween(200),
                         label = "hintBadge",
                     )
-                    if (badge > 0.01f) {
+                    if (badge > 0.01f && !zen) {
                         Row(
                             Modifier.graphicsLayer {
                                 alpha = badge
@@ -424,18 +451,34 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                         }
                     }
                 }
-                Box(
-                    Modifier.size(52.dp).glow(NeonCyan, 14.dp).background(SurfaceCard, CircleShape)
-                        .border(1.5.dp, NeonCyan, CircleShape).clip(CircleShape).clickable { zoomToMe() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(painterResource(R.drawable.ic_locate), contentDescription = "Zoom to my location", tint = NeonCyan, modifier = Modifier.size(26.dp))
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Zen mode: hides everything except this button and the locate button below it, so you can roam the map.
+                    Box(
+                        Modifier.size(52.dp).then(if (zen) Modifier.glow(NeonCyan, 14.dp) else Modifier)
+                            .background(if (zen) NeonCyan else SurfaceCard, CircleShape)
+                            .border(1.5.dp, NeonCyan, CircleShape).clip(CircleShape).clickable { toggleZen() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painterResource(if (zen) R.drawable.ic_eye else R.drawable.ic_eye_off),
+                            contentDescription = if (zen) "Show controls" else "Zen mode: hide controls",
+                            tint = if (zen) OnNeon else NeonCyan,
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
+                    Box(
+                        Modifier.size(52.dp).glow(NeonCyan, 14.dp).background(SurfaceCard, CircleShape)
+                            .border(1.5.dp, NeonCyan, CircleShape).clip(CircleShape).clickable { zoomToMe() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(painterResource(R.drawable.ic_locate), contentDescription = "Zoom to my location", tint = NeonCyan, modifier = Modifier.size(26.dp))
+                    }
                 }
             }
 
             val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
             Column(
-                Modifier.fillMaxWidth().clip(sheetShape).background(SheetColor).border(1.dp, OutlineStrong.copy(alpha = 0.7f), sheetShape)
+                Modifier.collapseVertically(sheetShown).fillMaxWidth().clip(sheetShape).background(SheetColor).border(1.dp, OutlineStrong.copy(alpha = 0.7f), sheetShape)
                     .navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -474,19 +517,11 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                             value = radius.toFloat(),
                             onValueChange = { radius = ((it / 10f).toInt() * 10).coerceIn(50, 500) },
                             range = 50f..500f,
-                            enabled = pin != null,
                         )
                     }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        onClick = ::pinMyLocation,
-                        shape = CircleShape,
-                        border = BorderStroke(1.5.dp, NeonCyan),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
-                        modifier = Modifier.weight(1f).heightIn(min = 52.dp),
-                    ) { Text("Pin my location", fontWeight = FontWeight.SemiBold) }
                     Button(
                         enabled = pin != null,
                         onClick = {
@@ -507,6 +542,14 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
         }
     }
 }
+
+/** Shrinks this element's height towards zero as [fraction] goes from 1 to 0, clipping what no longer fits. */
+private fun Modifier.collapseVertically(fraction: Float): Modifier = this
+    .clipToBounds()
+    .layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, (placeable.height * fraction.coerceIn(0f, 1f)).roundToInt()) { placeable.placeRelative(0, 0) }
+    }
 
 /** Shows only [fraction] of this element's natural width (0 = fully collapsed), clipping the rest. */
 private fun Modifier.horizontalReveal(fraction: Float): Modifier = this

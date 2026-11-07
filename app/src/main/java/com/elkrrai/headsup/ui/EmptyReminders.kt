@@ -150,7 +150,10 @@ private fun RippleBadge() {
 }
 
 @Composable
-private fun TipCard() {
+internal fun TipCard(
+    text: String = "Tip: share a list from WhatsApp into Heads Up and it becomes the note.",
+    icon: Int = R.drawable.ic_share,
+) {
     val shape = RoundedCornerShape(16.dp)
     Row(
         Modifier.fillMaxWidth().clip(shape).background(SurfaceCard).border(1.dp, Outline, shape).padding(12.dp),
@@ -158,10 +161,10 @@ private fun TipCard() {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.size(36.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_share), null, Modifier.size(20.dp), tint = NeonCyan)
+            Icon(painterResource(icon), null, Modifier.size(20.dp), tint = NeonCyan)
         }
         Text(
-            "Tip: share a list from WhatsApp into Heads Up and it becomes the note.",
+            text,
             style = MaterialTheme.typography.bodyMedium,
             color = Color(0xFFD5E0EA),
         )

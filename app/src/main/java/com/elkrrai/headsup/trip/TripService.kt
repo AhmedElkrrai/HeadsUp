@@ -13,6 +13,8 @@ import android.media.RingtoneManager
 import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.widget.RemoteViews
+
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -102,8 +104,14 @@ class TripService : Service() {
 
     private fun onLocation(loc: Location) {
         val d = dest ?: return
-        if (arrived || loc.accuracy > 500f) return
+        if (loc.accuracy > 500f) return
         val dist = loc.distanceTo(d)
+        if (arrived) {
+            // The alarm keeps ringing until dismissed; keep the screen and the notification's distance live.
+            state.value = TripState(name, alertM, dist.toInt(), null, arrived = true)
+            getSystemService(NotificationManager::class.java).notify(NOTIF_ID, alarmNotification(dist.toInt(), first = false))
+            return
+        }
         val eta = if (loc.hasSpeed() && loc.speed > 1.5f) (dist / loc.speed / 60f).toInt().coerceAtLeast(1) else null
         state.value = TripState(name, alertM, dist.toInt(), eta)
 
@@ -117,11 +125,14 @@ class TripService : Service() {
 
     private fun arrive(distM: Int) {
         arrived = true
-        callback?.let { client.removeLocationUpdates(it) }
-        callback = null
+        // Location updates stay on while ringing (see onLocation) so the distance keeps updating.
         state.value = TripState(name, alertM, distM, null, arrived = true)
         startRinging()
+        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, alarmNotification(distM, first = true))
+    }
 
+    /** The ringing alarm: a dark neon card (circle, distance, Dismiss) instead of a plain system notification. */
+    private fun alarmNotification(distM: Int, first: Boolean): android.app.Notification {
         val open = PendingIntent.getActivity(
             this, 1,
             Intent(this, MainActivity::class.java)
@@ -129,18 +140,36 @@ class TripService : Service() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val n = NotificationCompat.Builder(this, Notifier.CH_TRIP_ALARM)
+        val dismiss = stopIntent(this)
+        val away = formatDistance(distM)
+
+        // Same wording as the app: "1 km", not "1.0 km".
+        val alarmAt = if (alertM >= 1000 && alertM % 1000 == 0) "${alertM / 1000} km" else formatDistance(alertM)
+
+        val big = RemoteViews(packageName, R.layout.notif_trip_alarm_big).apply {
+            setTextViewText(R.id.notif_title, "$name — wake up!")
+            setTextViewText(R.id.notif_text, "You're $away away. The alarm was set for $alarmAt. Pack up and get ready to get off.")
+            setOnClickPendingIntent(R.id.notif_dismiss, dismiss)
+            setOnClickPendingIntent(R.id.notif_open, open)
+        }
+        // A "colorized" notification: the whole system card turns deep red (full width, no card inside a card).
+        return NotificationCompat.Builder(this, Notifier.CH_TRIP_ALARM)
             .setSmallIcon(R.drawable.ic_stat_headsup)
-            .setContentTitle("Get ready — $name is close")
-            .setContentText("About ${formatDistance(distM)} away")
+            .setColor(0xFFC62828.toInt())
+            .setColorized(true)
+            .setContentTitle("$name — wake up!")
+            .setContentText("$away to go. Get your things.")
+            // Collapsed / heads-up use the plain title + text above; expanded gets real pill buttons.
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomBigContentView(big)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
+            // Distance refreshes shouldn't pop the banner or buzz again.
+            .setOnlyAlertOnce(!first)
             .setContentIntent(open)
-            .setFullScreenIntent(open, true)
-            .addAction(0, "Dismiss", stopIntent(this))
+            .apply { if (first) setFullScreenIntent(open, true) }
             .build()
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, n)
     }
 
     private fun progressNotification(text: String) = NotificationCompat.Builder(this, Notifier.CH_TRIP)

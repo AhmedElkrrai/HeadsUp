@@ -37,6 +37,7 @@ import com.elkrrai.headsup.trip.TripService
 import com.elkrrai.headsup.ui.theme.Ink
 import com.elkrrai.headsup.ui.theme.InkBright
 import com.elkrrai.headsup.ui.theme.Muted
+import com.elkrrai.headsup.ui.theme.NeonCyan
 import com.elkrrai.headsup.ui.theme.NeonMagenta
 import com.elkrrai.headsup.ui.theme.Outline
 import com.elkrrai.headsup.ui.theme.SurfaceCard
@@ -54,6 +55,7 @@ internal fun TripPlaceSheet(
     here: GeoPoint?,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
+    onPickOnMap: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -79,7 +81,7 @@ internal fun TripPlaceSheet(
             Column {
                 Text("Where are you getting off?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = InkBright)
                 Text(
-                    "Tap one of your saved places.",
+                    if (places.isEmpty()) "You have no saved places yet." else "Tap one of your saved places, or choose on the map.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFA9B8C7),
                     modifier = Modifier.padding(top = 2.dp),
@@ -106,6 +108,20 @@ internal fun TripPlaceSheet(
                             if (away != null) Text(away, style = MaterialTheme.typography.bodyMedium, color = Muted)
                         }
                         Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(18.dp), tint = Muted)
+                    }
+                }
+                if (onPickOnMap != null) {
+                    val mapShape = RoundedCornerShape(20.dp)
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(mapShape)
+                            .border(1.5.dp, NeonCyan, mapShape)
+                            .clickable { scope.launch { sheetState.hide() }.invokeOnCompletion { onPickOnMap() } }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_map), null, Modifier.size(20.dp), tint = NeonCyan)
+                        Text("Choose on the map", fontWeight = FontWeight.Bold, color = NeonCyan)
                     }
                 }
             }

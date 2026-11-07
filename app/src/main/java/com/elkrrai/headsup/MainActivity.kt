@@ -11,7 +11,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import com.elkrrai.headsup.geo.GeofenceManager
+import com.elkrrai.headsup.trip.TripService
 import com.elkrrai.headsup.notify.Notifier
 import com.elkrrai.headsup.ui.AppViewModel
 import com.elkrrai.headsup.ui.HomeScreen
@@ -59,6 +62,10 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleIntent(intent)
 
         setContent {
+            // If the trip alarm goes off while the app is open, jump to the Trip screen (where you can dismiss it).
+            val alarmRinging = TripService.tripState.collectAsState().value?.arrived == true
+            LaunchedEffect(alarmRinging) { if (alarmRinging) showTripAlarm() }
+
             HeadsUpTheme {
                 when (val s = vm.screen) {
                     Screen.Home -> HomeScreen(vm, onRequestPermissions = ::requestPermissions)
@@ -75,9 +82,26 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Opening the app (from the launcher, recents…) while a trip alarm is ringing lands on the Trip screen.
+        // If a place reminder went off since you last looked, it opens on Reminders instead
+        // (unless you're in the middle of editing something).
+        if (TripService.tripState.value?.arrived == true) showTripAlarm()
+        else if (Notifier.reminderAlertPending) {
+            Notifier.reminderAlertPending = false
+            if (vm.screen == Screen.Home) vm.tab = 0
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         vm.refreshPermissions()
+    }
+
+    private fun showTripAlarm() {
+        vm.screen = Screen.Home
+        vm.tab = 1
     }
 
     private fun handleIntent(i: Intent?) {

@@ -1,0 +1,5 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <!-- White pill on the red card -->
+    <solid android:color="#FFFFFF" />
+    <corners android:radius="20dp" />
+</shape>
