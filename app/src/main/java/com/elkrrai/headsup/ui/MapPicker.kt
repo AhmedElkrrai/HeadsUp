@@ -101,6 +101,9 @@ fun MapPicker(
                         fillPaint.color = 0x00000000
                         outlinePaint.color = 0x3322F5E0
                         outlinePaint.strokeWidth = 18f
+                        // Same as the ring below: no info bubble, taps fall through to the map.
+                        infoWindow = null
+                        setOnClickListener { _, _, _ -> false }
                     })
                     mv.overlays.add(Polygon(mv).apply {
                         points = ring
@@ -108,6 +111,9 @@ fun MapPicker(
                         outlinePaint.color = 0xFF22F5E0.toInt()
                         outlinePaint.strokeWidth = 5f
                         if (dashedRing) outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(34f, 22f), 0f)
+                        // Tapping inside the ring would pop osmdroid's empty info bubble; let the tap move the pin instead.
+                        infoWindow = null
+                        setOnClickListener { _, _, _ -> false }
                     })
                 }
                 mv.overlays.add(Marker(mv).apply {

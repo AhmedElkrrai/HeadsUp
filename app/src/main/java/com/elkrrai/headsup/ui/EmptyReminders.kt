@@ -53,7 +53,7 @@ import com.elkrrai.headsup.ui.theme.glow
 
 /**
  * Shown on the Reminders tab while there are no reminders: a short welcome, one clear button,
- * a few one-tap starters, and a tip about sharing from WhatsApp. (The "+" button is hidden here
+ * and a few one-tap starters. (The "+" button is hidden here
  * because the big button does the same job.)
  */
 @Composable
@@ -103,8 +103,6 @@ fun EmptyReminders(vm: AppViewModel, onRequestPermissions: () -> Unit) {
                 }
             }
         }
-
-        TipCard()
     }
 }
 
@@ -151,7 +149,7 @@ private fun RippleBadge() {
 
 @Composable
 internal fun TipCard(
-    text: String = "Tip: share a list from WhatsApp into Heads Up and it becomes the note.",
+    text: String,
     icon: Int = R.drawable.ic_share,
 ) {
     val shape = RoundedCornerShape(16.dp)

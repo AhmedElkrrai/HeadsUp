@@ -55,6 +55,10 @@ fun DeleteConfirmDialog(
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    /** The red line under the chips; null hides it. */
+    warning: String? = "This can't be undone.",
+    dismissLabel: String = "Keep it",
+    icon: Int = R.drawable.ic_trash,
 ) {
     val shape = RoundedCornerShape(28.dp)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -72,7 +76,7 @@ fun DeleteConfirmDialog(
                     Modifier.size(60.dp).glow(HoldRed, 18.dp).background(Color(0xFF3A1020), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(painterResource(R.drawable.ic_trash), null, Modifier.size(28.dp), tint = HoldRed)
+                    Icon(painterResource(icon), null, Modifier.size(28.dp), tint = HoldRed)
                 }
 
                 Text(
@@ -110,13 +114,15 @@ fun DeleteConfirmDialog(
                     )
                 }
 
-                Text(
-                    "This can't be undone.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFFF8AA0),
-                    modifier = Modifier.padding(top = 16.dp),
-                )
+                if (warning != null) {
+                    Text(
+                        warning,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFFF8AA0),
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                }
 
                 Column(Modifier.padding(top = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -131,7 +137,7 @@ fun DeleteConfirmDialog(
                         border = BorderStroke(1.5.dp, OutlineStrong),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    ) { Text("Keep it", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                    ) { Text(dismissLabel, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                 }
             }
         }

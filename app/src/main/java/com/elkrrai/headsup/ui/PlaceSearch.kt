@@ -18,8 +18,11 @@ import java.net.URLEncoder
 
 data class SearchHit(val label: String, val lat: Double, val lng: Double)
 
-/** Free-text place search using OpenStreetMap's Nominatim (no API key needed). */
-suspend fun searchPlaces(query: String): List<SearchHit> = withContext(Dispatchers.IO) {
+/**
+ * Free-text place search using OpenStreetMap's Nominatim (no API key needed).
+ * An empty list means "nothing found"; null means the request itself failed (no internet, timeout, server error).
+ */
+suspend fun searchPlaces(query: String): List<SearchHit>? = withContext(Dispatchers.IO) {
     try {
         val url = URL("https://nominatim.openstreetmap.org/search?format=json&limit=6&q=" + URLEncoder.encode(query, "UTF-8"))
         val conn = url.openConnection() as HttpURLConnection
@@ -32,7 +35,7 @@ suspend fun searchPlaces(query: String): List<SearchHit> = withContext(Dispatche
             SearchHit(o.getString("display_name"), o.getDouble("lat"), o.getDouble("lon"))
         }
     } catch (_: Exception) {
-        emptyList()
+        null
     }
 }
 
@@ -68,6 +71,25 @@ fun armNextVisitIfHere(ctx: Context, reminderId: String, placeId: String) {
         if (here != null && here.distanceToAsDouble(GeoPoint(target.lat, target.lng)) <= target.reminderRadiusM + 25) {
             Store.snoozeUntilNextVisit(reminderId)
         }
+    }
+    currentLocation(ctx) { loc ->
+        if (loc != null) apply(GeoPoint(loc.first, loc.second)) else lastKnownLocation(ctx) { apply(it) }
+    }
+}
+
+/**
+ * "Once in place" for a brand-new reminder: the place's geofence only fires when you walk into the circle, so if
+ * you are already inside when you save, nothing would ever alert until you left and came back. In that case alert
+ * right away. If we can't tell where you are, we stay quiet (the geofence still alerts on the next arrival).
+ */
+fun alertNowIfHere(ctx: Context, reminderId: String, placeId: String) {
+    val target = Store.place(placeId) ?: return
+    if (!Permissions.hasLocation(ctx)) return
+    fun apply(here: GeoPoint?) {
+        if (here == null || here.distanceToAsDouble(GeoPoint(target.lat, target.lng)) > target.reminderRadiusM) return
+        val r = Store.reminder(reminderId) ?: return
+        if (r.done || r.isSnoozed()) return
+        com.elkrrai.headsup.notify.Notifier.notifyErrand(ctx.applicationContext, r, target)
     }
     currentLocation(ctx) { loc ->
         if (loc != null) apply(GeoPoint(loc.first, loc.second)) else lastKnownLocation(ctx) { apply(it) }

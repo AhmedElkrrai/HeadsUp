@@ -131,6 +131,8 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
     var hits by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var offline by remember { mutableStateOf(false) }
+    var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     // Where the map opens. Known instantly from the saved pin or the cached last position,
     // so there is no world-map flash. Only if neither exists do we wait briefly for GPS.
@@ -184,10 +186,21 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
         if (query.isBlank() || searching) return
         searching = true
         message = null
-        scope.launch {
-            hits = searchPlaces(query)
+        searchJob = scope.launch {
+            val began = SystemClock.elapsedRealtime()
+            val found = searchPlaces(query)
+            // With no network the request fails instantly; keep the loader up a moment so it never looks frozen or ignored.
+            val spent = SystemClock.elapsedRealtime() - began
+            if (spent < 700) delay(700 - spent)
+            hits = found ?: emptyList()
             searching = false
-            if (hits.isEmpty()) message = "No results (or no internet)."
+            // A failed request opens the "No internet" popup; "no results" is a short note under the bar.
+            offline = found == null
+            message = when {
+                found == null -> null
+                found.isEmpty() -> "No places found for \"${query.trim()}\". Try a different name."
+                else -> null
+            }
         }
     }
 
@@ -239,8 +252,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
             if (p != null) {
                 placedQuickly = true
                 pin = p
-                focusOn(p)
-                message = "Using your last known position, refining with GPS…"
+                focusOn(p) // refined silently once the GPS fix arrives
             } else {
                 message = "Finding you…"
             }
@@ -287,7 +299,40 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
     }
 
     // Back leaves zen mode first, then the screen.
-    BackHandler { if (zen) zen = false else vm.closePlaceEditor() }
+    // Leaving without saving (system back or the top-left button) asks first.
+    var confirmLeave by remember { mutableStateOf(false) }
+    BackHandler { if (zen) zen = false else confirmLeave = true }
+
+    if (confirmLeave) {
+        DeleteConfirmDialog(
+            title = "Leave without saving?",
+            intro = "Your changes to this place will be lost.",
+            chips = emptyList(),
+            confirmLabel = "Leave",
+            warning = null,
+            dismissLabel = "Keep editing",
+            icon = R.drawable.ic_back,
+            onConfirm = {
+                confirmLeave = false
+                vm.closePlaceEditor()
+            },
+            onDismiss = { confirmLeave = false },
+        )
+    }
+
+    if (offline) {
+        NoInternetDialog(
+            body = "Searching needs the internet. Turn on Wi-Fi or mobile data, then try again.",
+            retrying = searching,
+            // The dialog stays up with a loader while retrying: it closes on success, and stays if it fails again.
+            onRetry = { doSearch() },
+            onDismiss = {
+                searchJob?.cancel()
+                searching = false
+                offline = false
+            },
+        )
+    }
 
     Box(
         Modifier.fillMaxSize().background(Bg).pointerInput(Unit) {
@@ -328,7 +373,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     Modifier.size(48.dp).glow(Color.Black, 6.dp).clip(CircleShape).background(SurfaceCard)
-                        .border(1.dp, OutlineStrong, CircleShape).clickable { vm.closePlaceEditor() },
+                        .border(1.dp, OutlineStrong, CircleShape).clickable { confirmLeave = true },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = Ink, modifier = Modifier.size(22.dp))
@@ -344,6 +389,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
                         value = query,
                         onValueChange = {
                             query = it
+                            message = null // the old "no results" note is about the old text
                             bump()
                         },
                         singleLine = true,
@@ -361,13 +407,19 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
                     )
                     if (searching) {
                         CircularProgressIndicator(Modifier.size(18.dp), color = NeonCyan, strokeWidth = 2.dp)
-                    } else if (query.isNotBlank()) {
-                        // Visible search button (the keyboard's search key works too).
+                    }
+                    if (query.isNotEmpty()) {
+                        // Clear the search text (and any results or note under the bar).
                         Box(
-                            Modifier.size(36.dp).clip(CircleShape).background(NeonCyan).clickable { doSearch() },
+                            Modifier.size(32.dp).clip(CircleShape).clickable {
+                                query = ""
+                                hits = emptyList()
+                                message = null
+                                bump()
+                            },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(painterResource(R.drawable.ic_chevron), contentDescription = "Search", tint = OnNeon, modifier = Modifier.size(20.dp))
+                            Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search", tint = Muted, modifier = Modifier.size(20.dp))
                         }
                     }
                 }

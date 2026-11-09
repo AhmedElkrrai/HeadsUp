@@ -117,8 +117,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
         Store.upsertReminder(saved)
         closeEditor()
-        // "When: Next visit" only applies when creating (the Edit screen has its own Snooze card).
-        if (existing == null && d.whenNextVisit) armNextVisitIfHere(getApplication(), saved.id, placeId)
+        // "When" only applies when creating (the Edit screen has its own Snooze card).
+        // Next visit: stay quiet while you're here. Once in place: if you're here now, alert right away.
+        if (existing == null) {
+            if (d.whenNextVisit) armNextVisitIfHere(getApplication(), saved.id, placeId)
+            else alertNowIfHere(getApplication(), saved.id, placeId)
+        }
     }
 
     fun closeEditor() {
