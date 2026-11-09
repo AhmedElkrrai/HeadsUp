@@ -117,7 +117,7 @@ internal fun PlacePickerSheet(
                     val away = here?.distanceToAsDouble(GeoPoint(p.lat, p.lng))?.toInt()?.let { TripService.formatDistance(it) }
                     PlaceChoiceCard(
                         name = p.name,
-                        detail = "${p.radiusM} m circle" + (away?.let { " · $it away" } ?: ""),
+                        detail = "${p.reminderRadiusM} m circle" + (away?.let { " · $it away" } ?: ""),
                         selected = p.id == selectedId,
                         onSelect = { closeThen { onPick(p.id) } },
                         onEdit = { closeThen { onEdit(p.id) } },

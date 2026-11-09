@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elkrrai.headsup.Permissions
 import com.elkrrai.headsup.R
+import com.elkrrai.headsup.data.PlaceMode
 import com.elkrrai.headsup.data.Reminder
 import com.elkrrai.headsup.data.Store
 import com.elkrrai.headsup.ui.theme.AmberContainer
@@ -128,7 +129,7 @@ fun ReminderEditorScreen(vm: AppViewModel) {
         val target = Store.place(placeId)
         fun apply(here: GeoPoint?) {
             val away = target != null && here != null &&
-                here.distanceToAsDouble(GeoPoint(target.lat, target.lng)) > target.radiusM + 25
+                here.distanceToAsDouble(GeoPoint(target.lat, target.lng)) > target.reminderRadiusM + 25
             if (away) {
                 Toast.makeText(
                     ctx,
@@ -160,11 +161,11 @@ fun ReminderEditorScreen(vm: AppViewModel) {
             },
             onEdit = {
                 pickPlace = false
-                vm.openPlaceEditor(it)
+                vm.openPlaceEditor(it, PlaceMode.Reminder)
             },
             onNew = {
                 pickPlace = false
-                vm.openPlaceEditor(null)
+                vm.openPlaceEditor(null, PlaceMode.Reminder)
             },
             onDismiss = { pickPlace = false },
         )
@@ -283,14 +284,14 @@ fun ReminderEditorScreen(vm: AppViewModel) {
                                 color = if (place == null) Muted else InkBright,
                             )
                             Text(
-                                place?.let { "${it.radiusM} m circle" } ?: "Pin one on the map",
+                                place?.let { "${it.reminderRadiusM} m circle" } ?: "Pin one on the map",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Muted,
                             )
                         }
                         OutlinedButton(
                             // With nothing saved yet, a list would only hold "pin new": go straight to the map.
-                            onClick = { if (places.isEmpty()) vm.openPlaceEditor(null) else pickPlace = true },
+                            onClick = { if (places.isEmpty()) vm.openPlaceEditor(null, PlaceMode.Reminder) else pickPlace = true },
                             border = BorderStroke(1.5.dp, NeonCyan),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
                             modifier = Modifier.heightIn(min = 44.dp),

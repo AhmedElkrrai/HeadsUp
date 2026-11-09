@@ -7,14 +7,19 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.elkrrai.headsup.Permissions
+import com.elkrrai.headsup.trip.TripService
+import kotlinx.coroutines.launch
+import com.elkrrai.headsup.data.PlaceMode
 import com.elkrrai.headsup.data.Reminder
 import com.elkrrai.headsup.data.Store
 
 sealed interface Screen {
     data object Home : Screen
     data object ReminderEditor : Screen
-    data class PlaceEditor(val placeId: String?, val forTrip: Boolean = false) : Screen
+    /** [lock]: opened for one purpose (trip destination / reminder place), so the mode can't be switched; null = free. */
+    data class PlaceEditor(val placeId: String?, val lock: PlaceMode? = null) : Screen
 }
 
 /** Unsaved state of the reminder editor (kept here so it survives a trip to the place editor). */
@@ -37,6 +42,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var draft by mutableStateOf<Draft?>(null)
     var tripPlaceId by mutableStateOf<String?>(null)
 
+    init {
+        // When a trip ends (stopped, or the alarm dismissed), forget the destination so the Trip tab goes back
+        // to the wheel of places instead of staying on the one you just used.
+        viewModelScope.launch {
+            var wasRunning = false
+            TripService.tripState.collect { s ->
+                if (s != null) wasRunning = true
+                else if (wasRunning) {
+                    tripPlaceId = null
+                    wasRunning = false
+                }
+            }
+        }
+    }
+
     /** The "Alerts are on" card shrinks to its badge after a few seconds; this survives tab switches. */
     var statusCollapsed by mutableStateOf(false)
 
@@ -53,7 +73,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         alertsIntroDone = true
         prefs.edit().putBoolean("alerts_intro_done", true).apply()
     }
-    var tripAlertM by mutableIntStateOf(1000)
     var permissions by mutableStateOf(readPermissions())
 
     fun refreshPermissions() {
@@ -110,9 +129,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** A name to pre-fill in the place editor ("Home", "Work"…), used once. */
     var placeNameSuggestion: String? = null
 
-    fun openPlaceEditor(placeId: String?, forTrip: Boolean = false, suggestedName: String? = null) {
+    fun openPlaceEditor(placeId: String?, lock: PlaceMode? = null, suggestedName: String? = null) {
         placeNameSuggestion = suggestedName
-        screen = Screen.PlaceEditor(placeId, forTrip)
+        screen = Screen.PlaceEditor(placeId, lock)
     }
 
     /** After saving/cancelling a place: back to the reminder editor if one is in progress. */
@@ -120,7 +139,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (savedPlaceId != null) {
             draft = draft?.copy(placeId = savedPlaceId)
             // Only a place made while choosing a trip destination becomes the trip's destination.
-            if ((screen as? Screen.PlaceEditor)?.forTrip == true) tripPlaceId = savedPlaceId
+            if ((screen as? Screen.PlaceEditor)?.lock == PlaceMode.Trip) tripPlaceId = savedPlaceId
         }
         screen = if (draft != null) Screen.ReminderEditor else Screen.Home
     }

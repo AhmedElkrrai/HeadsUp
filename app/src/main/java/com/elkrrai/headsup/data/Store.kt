@@ -92,7 +92,7 @@ object Store {
         try {
             val root = JSONObject(f.readText())
             _places.value = root.optJSONArray("places").toList { o ->
-                Place(o.getString("id"), o.getString("name"), o.getDouble("lat"), o.getDouble("lng"), o.optInt("radiusM", 150))
+                Place(o.getString("id"), o.getString("name"), o.getDouble("lat"), o.getDouble("lng"), o.optInt("reminderRadiusM", o.optInt("radiusM", Radius.REMINDER_DEFAULT)), o.optInt("tripRadiusM", Radius.TRIP_DEFAULT))
             }
             _reminders.value = root.optJSONArray("reminders").toList { o ->
                 Reminder(
@@ -116,7 +116,7 @@ object Store {
         val root = JSONObject()
         root.put("places", JSONArray().also { arr ->
             _places.value.forEach {
-                arr.put(JSONObject().put("id", it.id).put("name", it.name).put("lat", it.lat).put("lng", it.lng).put("radiusM", it.radiusM))
+                arr.put(JSONObject().put("id", it.id).put("name", it.name).put("lat", it.lat).put("lng", it.lng).put("reminderRadiusM", it.reminderRadiusM).put("tripRadiusM", it.tripRadiusM))
             }
         })
         root.put("reminders", JSONArray().also { arr ->

@@ -70,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 when (val s = vm.screen) {
                     Screen.Home -> HomeScreen(vm, onRequestPermissions = ::requestPermissions)
                     Screen.ReminderEditor -> ReminderEditorScreen(vm)
-                    is Screen.PlaceEditor -> PlaceEditorScreen(vm, s.placeId, s.forTrip)
+                    is Screen.PlaceEditor -> PlaceEditorScreen(vm, s.placeId, s.lock)
                 }
             }
         }

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Expanded trip-in-progress notification: more detail and a real Stop trip pill. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/notif_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/notif_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#D9FFFFFF"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/notif_text2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#D9FFFFFF"
+        android:textSize="14sp" />
+
+    <ImageView
+        android:id="@+id/notif_bar"
+        android:layout_width="match_parent"
+        android:layout_height="12dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="12dp"
+        android:contentDescription="@null"
+        android:scaleType="fitXY" />
+
+    <TextView
+        android:id="@+id/notif_stop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@drawable/notif_pill_glass"
+        android:gravity="center"
+        android:minHeight="40dp"
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:text="Stop trip"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+</LinearLayout>

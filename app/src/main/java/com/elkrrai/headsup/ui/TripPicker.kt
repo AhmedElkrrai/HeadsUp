@@ -23,6 +23,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +60,10 @@ internal fun TripPlaceSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    // Closest first (when we know where you are).
+    val sortedPlaces = remember(places, here) {
+        if (here == null) places else places.sortedBy { here.distanceToAsDouble(GeoPoint(it.lat, it.lng)) }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -81,15 +86,30 @@ internal fun TripPlaceSheet(
             Column {
                 Text("Where are you getting off?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = InkBright)
                 Text(
-                    if (places.isEmpty()) "You have no saved places yet." else "Tap one of your saved places, or choose on the map.",
+                    if (places.isEmpty()) "You have no saved places yet." else if (here != null) "Closest first. Scroll for more." else "Tap one of your saved places.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFA9B8C7),
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
             Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                places.forEach { p ->
-                    val away = here?.distanceToAsDouble(GeoPoint(p.lat, p.lng))?.toInt()?.let { TripService.formatDistance(it) + " away" }
+                if (onPickOnMap != null) {
+                    val mapShape = RoundedCornerShape(20.dp)
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(mapShape)
+                            .border(1.5.dp, NeonCyan, mapShape)
+                            .clickable { scope.launch { sheetState.hide() }.invokeOnCompletion { onPickOnMap() } }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_map), null, Modifier.size(20.dp), tint = NeonCyan)
+                        Text("Choose on the map", fontWeight = FontWeight.Bold, color = NeonCyan)
+                    }
+                }
+                sortedPlaces.forEach { p ->
+                    val away = (here?.distanceToAsDouble(GeoPoint(p.lat, p.lng))?.toInt()?.let { TripService.formatDistance(it) + " away · " } ?: "") +
+                        "alarm ${alarmLabel(p.tripRadiusM)}"
                     val shape = RoundedCornerShape(20.dp)
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 68.dp).clip(shape).background(SurfaceCard)
@@ -108,20 +128,6 @@ internal fun TripPlaceSheet(
                             if (away != null) Text(away, style = MaterialTheme.typography.bodyMedium, color = Muted)
                         }
                         Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(18.dp), tint = Muted)
-                    }
-                }
-                if (onPickOnMap != null) {
-                    val mapShape = RoundedCornerShape(20.dp)
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(mapShape)
-                            .border(1.5.dp, NeonCyan, mapShape)
-                            .clickable { scope.launch { sheetState.hide() }.invokeOnCompletion { onPickOnMap() } }
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                    ) {
-                        Icon(painterResource(R.drawable.ic_map), null, Modifier.size(20.dp), tint = NeonCyan)
-                        Text("Choose on the map", fontWeight = FontWeight.Bold, color = NeonCyan)
                     }
                 }
             }

@@ -65,7 +65,7 @@ fun armNextVisitIfHere(ctx: Context, reminderId: String, placeId: String) {
     val target = Store.place(placeId) ?: return
     if (!Permissions.hasLocation(ctx)) return
     fun apply(here: GeoPoint?) {
-        if (here != null && here.distanceToAsDouble(GeoPoint(target.lat, target.lng)) <= target.radiusM + 25) {
+        if (here != null && here.distanceToAsDouble(GeoPoint(target.lat, target.lng)) <= target.reminderRadiusM + 25) {
             Store.snoozeUntilNextVisit(reminderId)
         }
     }

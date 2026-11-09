@@ -28,6 +28,8 @@ import org.osmdroid.views.overlay.Polygon
 fun MapPicker(
     pin: GeoPoint?,
     radiusM: Int,
+    /** Dashed ring (used for trip alarm distances) instead of a solid one. */
+    dashedRing: Boolean = false,
     focus: GeoPoint?,
     focusKey: Int,
     focusZoom: Double = 16.0,
@@ -105,6 +107,7 @@ fun MapPicker(
                         fillPaint.color = 0x2422F5E0
                         outlinePaint.color = 0xFF22F5E0.toInt()
                         outlinePaint.strokeWidth = 5f
+                        if (dashedRing) outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(34f, 22f), 0f)
                     })
                 }
                 mv.overlays.add(Marker(mv).apply {

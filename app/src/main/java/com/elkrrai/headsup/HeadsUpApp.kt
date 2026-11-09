@@ -31,7 +31,7 @@ class HeadsUpApp : Application() {
         // affects a geofence changes (not on every snooze / done toggle).
         scope.launch {
             combine(Store.places, Store.reminders) { _, _ ->
-                GeofenceManager.activePlaces().map { "${it.id}|${it.lat}|${it.lng}|${it.radiusM}" }.toSet()
+                GeofenceManager.activePlaces().map { "${it.id}|${it.lat}|${it.lng}|${it.reminderRadiusM}" }.toSet()
             }.distinctUntilChanged().collect { GeofenceManager.sync(this@HeadsUpApp) }
         }
     }

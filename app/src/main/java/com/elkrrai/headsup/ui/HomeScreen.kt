@@ -12,6 +12,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elkrrai.headsup.R
 import com.elkrrai.headsup.data.Place
+import com.elkrrai.headsup.data.PlaceMode
+import com.elkrrai.headsup.data.Radius
 import com.elkrrai.headsup.data.Reminder
 import com.elkrrai.headsup.data.Store
 import com.elkrrai.headsup.notify.Notifier
@@ -78,6 +82,7 @@ import com.elkrrai.headsup.ui.theme.Muted
 import com.elkrrai.headsup.ui.theme.NavIdle
 import com.elkrrai.headsup.ui.theme.NeonAmber
 import com.elkrrai.headsup.ui.theme.NeonCyan
+import com.elkrrai.headsup.ui.theme.NeonCyanSoft
 import com.elkrrai.headsup.ui.theme.NeonMagenta
 import com.elkrrai.headsup.ui.theme.OnNeon
 import com.elkrrai.headsup.ui.theme.Outline
@@ -418,7 +423,7 @@ private fun ReminderCard(r: Reminder, place: Place?, distance: String?, onClick:
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(14.dp), tint = Muted)
                     Text(
-                        "${place?.name ?: "(place removed)"}" + (place?.let { " · ${it.radiusM} m circle" } ?: ""),
+                        "${place?.name ?: "(place removed)"}" + (place?.let { " · ${it.reminderRadiusM} m circle" } ?: ""),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Muted,
                     )
@@ -501,12 +506,15 @@ private fun PlacesTab(vm: AppViewModel, places: List<Place>, reminders: List<Rem
                     Box(Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
                         Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(22.dp), tint = NeonCyan)
                     }
-                    Column(Modifier.weight(1f)) {
-                        Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = InkBright)
-                        Text(
-                            "Circle ${p.radiusM} m · $n pending reminder${if (n == 1) "" else "s"}",
-                            style = MaterialTheme.typography.bodyMedium, color = Muted,
-                        )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = InkBright)
+                        // One chip per radius (same look for both), then how many reminders are waiting here.
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            RadiusChip(R.drawable.ic_bell, "${p.reminderRadiusM} m")
+                            RadiusChip(R.drawable.ic_navigate, alarmLabel(p.tripRadiusM))
+                            if (n > 0) PendingBadge(n)
+                        }
                     }
                     Icon(painterResource(R.drawable.ic_chevron), null, Modifier.size(18.dp), tint = Muted)
                 }
@@ -541,7 +549,7 @@ private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions:
             onDismiss = { showSaved = false },
             onPickOnMap = {
                 showSaved = false
-                vm.openPlaceEditor(null, forTrip = true)
+                vm.openPlaceEditor(null, PlaceMode.Trip)
             },
         )
     }
@@ -551,112 +559,50 @@ private fun TripTab(vm: AppViewModel, places: List<Place>, onRequestPermissions:
         return
     }
 
-    Column(Modifier.fillMaxSize()) {
-    Column(
-        Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        run {
-            // Destination: a compact row once chosen (with Change); two ways to choose before that.
-            if (place != null) {
-                val rowShape = RoundedCornerShape(22.dp)
-                Row(
-                    Modifier.fillMaxWidth().clip(rowShape).background(SurfaceCard).border(1.dp, Outline, rowShape)
-                        .padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(Modifier.size(44.dp).background(Color(0xFF2A0F25), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(22.dp), tint = NeonMagenta)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        SectionLabel("Destination")
-                        Text(
-                            place.name,
-                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = InkBright,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        val away = here?.distanceToAsDouble(GeoPoint(place.lat, place.lng))?.toInt()
-                        if (away != null) {
-                            Text(TripService.formatDistance(away) + " away", style = MaterialTheme.typography.bodyMedium, color = Muted)
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = { showSaved = true },
-                        shape = CircleShape,
-                        border = BorderStroke(1.5.dp, NeonCyan),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonCyan),
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        modifier = Modifier.heightIn(min = 40.dp),
-                    ) { Text("Change", fontSize = 14.sp, fontWeight = FontWeight.Bold) }
-                }
-            } else Card(
-                shape = CardShape,
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                border = BorderStroke(1.dp, Outline),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.size(44.dp).background(Color(0xFF2A0F25), CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(22.dp), tint = NeonMagenta)
-                        }
-                        Column(Modifier.weight(1f)) {
-                            SectionLabel("Destination")
-                            Text(
-                                place?.name ?: "Not chosen yet",
-                                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                                color = if (place == null) Muted else InkBright,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                            val away = place?.let { pl -> here?.distanceToAsDouble(GeoPoint(pl.lat, pl.lng))?.toInt() }
-                            if (away != null) {
-                                Text(TripService.formatDistance(away) + " away", style = MaterialTheme.typography.bodyMedium, color = Muted)
-                            }
-                        }
-                    }
-                    // One button opens the sheet: your saved places plus "Choose on the map".
-                    OutlinedButton(
-                        onClick = { showSaved = true },
-                        shape = CircleShape,
-                        border = BorderStroke(1.5.dp, NeonCyan),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = NeonCyan,
-                        ),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    ) {
-                        Icon(painterResource(R.drawable.ic_pin), null, Modifier.size(20.dp))
-                        Text("Choose destination", fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-
-            AlarmRadarCard(place?.name, vm.tripAlertM) { vm.tripAlertM = it }
-        }
-    }
-
-    // Pinned to the bottom (just above the navigation bar), outside the scrolling area.
-    if (t == null) {
-        val shape = RoundedCornerShape(28.dp)
-        Button(
-            enabled = place != null,
-            onClick = {
-                val pl = place ?: return@Button
+    TripSetup(
+        place = place,
+        places = places,
+        here = here,
+        onPick = { vm.tripPlaceId = it },
+        onOpenList = { showSaved = true },
+        onNew = { vm.openPlaceEditor(null, PlaceMode.Trip) },
+        onBack = { vm.tripPlaceId = null },
+        onEditAlarm = { place?.let { vm.openPlaceEditor(it.id, PlaceMode.Trip) } },
+        onStart = {
+            val pl = place
+            if (pl != null) {
                 if (!vm.permissions.location) onRequestPermissions()
-                else TripService.start(ctx, pl.name, pl.lat, pl.lng, vm.tripAlertM)
-            },
-            shape = shape,
-            colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = OnNeon),
-            modifier = Modifier
-                .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 20.dp)
-                .fillMaxWidth()
-                .height(56.dp)
-                .then(if (place != null) Modifier.glow(NeonCyan, 16.dp, shape) else Modifier),
-        ) {
-            Icon(painterResource(R.drawable.ic_navigate), null, Modifier.size(22.dp))
-            Text("  Start trip", fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        }
+                else TripService.start(ctx, pl.name, pl.lat, pl.lng, pl.tripRadiusM)
+            }
+        },
+    )
+}
+
+
+/** "🔔 150 m" / "➤ 5 km": a place's reminder or trip radius, shown as a small neon-edged chip. */
+@Composable
+private fun RadiusChip(icon: Int, text: String) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier.background(NeonCyanSoft, shape).border(1.5.dp, NeonCyan.copy(alpha = 0.45f), shape)
+            .padding(start = 9.dp, end = 11.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(painterResource(icon), null, Modifier.size(14.dp), tint = NeonCyan)
+        Text(text, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, color = InkBright, maxLines = 1)
     }
+}
+
+/** "🔔 2 pending": reminders waiting at this place. */
+@Composable
+private fun PendingBadge(n: Int) {
+    Row(
+        Modifier.background(NeonCyanSoft, RoundedCornerShape(12.dp)).padding(start = 8.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_bell), null, Modifier.size(13.dp), tint = NeonCyan)
+        Text("$n pending", fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, color = NeonCyan, maxLines = 1)
     }
 }

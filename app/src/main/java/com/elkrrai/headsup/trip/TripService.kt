@@ -37,6 +37,10 @@ data class TripState(
     val distanceM: Int? = null,
     val etaMin: Int? = null,
     val arrived: Boolean = false,
+    /** Smoothed speed, km/h, once there's a reading. */
+    val speedKmh: Int? = null,
+    /** Distance (m) at the first GPS fix: "passed" is this minus [distanceM]. */
+    val startM: Int? = null,
 )
 
 /**
@@ -52,6 +56,12 @@ class TripService : Service() {
     private var name = "Destination"
     private var alertM = 1000
     private var arrived = false
+
+    /** Distance at the first GPS fix, so the notification's bar can show how far along the trip is. */
+    private var startDistM = 0
+
+    /** Smoothed speed in m/s (0 until the first reading), so the time estimate doesn't jump around. */
+    private var speedMs = 0f
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -76,11 +86,13 @@ class TripService : Service() {
             longitude = intent.getDoubleExtra(EXTRA_LNG, 0.0)
         }
         arrived = false
+        startDistM = 0
+        speedMs = 0f
         stopRinging()
         state.value = TripState(name, alertM)
 
         ServiceCompat.startForeground(
-            this, NOTIF_ID, progressNotification("Waiting for GPS…"),
+            this, NOTIF_ID, progressNotification("Waiting for GPS…", null, 0.96f),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         )
         startUpdates()
@@ -106,32 +118,42 @@ class TripService : Service() {
         val d = dest ?: return
         if (loc.accuracy > 500f) return
         val dist = loc.distanceTo(d)
+        if (startDistM == 0) startDistM = dist.toInt()
+        if (loc.hasSpeed()) speedMs = if (speedMs == 0f) loc.speed else 0.7f * speedMs + 0.3f * loc.speed
+        val speedKmh = if (speedMs > 0.5f) (speedMs * 3.6f).toInt() else null
         if (arrived) {
             // The alarm keeps ringing until dismissed; keep the screen and the notification's distance live.
-            state.value = TripState(name, alertM, dist.toInt(), null, arrived = true)
+            state.value = TripState(name, alertM, dist.toInt(), null, arrived = true, speedKmh = speedKmh, startM = startDistM)
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, alarmNotification(dist.toInt(), first = false))
             return
         }
-        val eta = if (loc.hasSpeed() && loc.speed > 1.5f) (dist / loc.speed / 60f).toInt().coerceAtLeast(1) else null
-        state.value = TripState(name, alertM, dist.toInt(), eta)
+        val eta = if (speedMs > 1.5f) (dist / speedMs / 60f).toInt().coerceAtLeast(1) else null
+        state.value = TripState(name, alertM, dist.toInt(), eta, speedKmh = speedKmh, startM = startDistM)
 
         if (dist <= alertM) {
             arrive(dist.toInt())
         } else {
-            val text = "${formatDistance(dist.toInt())} to go" + (eta?.let { " · ~$it min" } ?: "")
-            getSystemService(NotificationManager::class.java).notify(NOTIF_ID, progressNotification(text))
+            // The bar runs from the first fix (0) to the destination (1); the white tick marks where the alarm rings.
+            val total = startDistM.coerceAtLeast(1)
+            val frac = ((startDistM - dist) / total).coerceIn(0f, 1f)
+            val tick = ((startDistM - alertM).toFloat() / total).coerceIn(0f, 1f)
+            val text = "${formatDistance(dist.toInt())} to go · alarm at ${alarmLabel(alertM)}"
+            val detail = "${formatDistance(dist.toInt())} to go" + (eta?.let { " · about $it min" } ?: "") +
+                "\nAlarm rings at ${alarmLabel(alertM)}"
+            getSystemService(NotificationManager::class.java).notify(NOTIF_ID, progressNotification(text, frac, tick, detail))
         }
     }
 
     private fun arrive(distM: Int) {
         arrived = true
         // Location updates stay on while ringing (see onLocation) so the distance keeps updating.
-        state.value = TripState(name, alertM, distM, null, arrived = true)
+        state.value = state.value?.copy(distanceM = distM, etaMin = null, arrived = true)
+            ?: TripState(name, alertM, distM, null, arrived = true)
         startRinging()
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, alarmNotification(distM, first = true))
     }
 
-    /** The ringing alarm: a dark neon card (circle, distance, Dismiss) instead of a plain system notification. */
+    /** The ringing alarm notification: a dark card with a red neon edge (circle, distance, Dismiss). */
     private fun alarmNotification(distM: Int, first: Boolean): android.app.Notification {
         val open = PendingIntent.getActivity(
             this, 1,
@@ -142,25 +164,29 @@ class TripService : Service() {
         )
         val dismiss = stopIntent(this)
         val away = formatDistance(distM)
+        val alarmAt = alarmLabel(alertM)
 
-        // Same wording as the app: "1 km", not "1.0 km".
-        val alarmAt = if (alertM >= 1000 && alertM % 1000 == 0) "${alertM / 1000} km" else formatDistance(alertM)
-
+        val small = RemoteViews(packageName, R.layout.notif_trip_alarm_small).apply {
+            setTextViewText(R.id.notif_name, name)
+            setTextViewText(R.id.notif_away, "$away away")
+            setOnClickPendingIntent(R.id.notif_dismiss, dismiss)
+        }
         val big = RemoteViews(packageName, R.layout.notif_trip_alarm_big).apply {
-            setTextViewText(R.id.notif_title, "$name — wake up!")
-            setTextViewText(R.id.notif_text, "You're $away away. The alarm was set for $alarmAt. Pack up and get ready to get off.")
+            setTextViewText(R.id.notif_name, name)
+            setTextViewText(R.id.notif_away, away)
+            setTextViewText(R.id.notif_alarm_at, alarmAt)
             setOnClickPendingIntent(R.id.notif_dismiss, dismiss)
             setOnClickPendingIntent(R.id.notif_open, open)
         }
-        // A "colorized" notification: the whole system card turns deep red (full width, no card inside a card).
         return NotificationCompat.Builder(this, Notifier.CH_TRIP_ALARM)
             .setSmallIcon(R.drawable.ic_stat_headsup)
-            .setColor(0xFFC62828.toInt())
-            .setColorized(true)
-            .setContentTitle("$name — wake up!")
-            .setContentText("$away to go. Get your things.")
-            // Collapsed / heads-up use the plain title + text above; expanded gets real pill buttons.
+            .setColor(0xFFE53935.toInt())
+            // Plain text too, for the lock screen, watches and screen readers.
+            .setContentTitle("$name is close")
+            .setContentText("$away away. Time to get ready.")
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(small)
+            .setCustomHeadsUpContentView(small)
             .setCustomBigContentView(big)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -172,21 +198,49 @@ class TripService : Service() {
             .build()
     }
 
-    private fun progressNotification(text: String) = NotificationCompat.Builder(this, Notifier.CH_TRIP)
-        .setSmallIcon(R.drawable.ic_stat_headsup)
-        .setContentTitle("Trip to $name")
-        .setContentText(text)
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
-        .setContentIntent(
-            PendingIntent.getActivity(
-                this, 2, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    /**
+     * The quiet "trip in progress" notification: the whole card takes the app's dark teal (colorized); inside it,
+     * our own layout with a glowing neon bar ([fraction] 0..1 along the trip, or null while waiting for GPS, with
+     * a white tick at [tick] where the alarm rings) and, when expanded, a real Stop trip pill.
+     */
+    private fun progressNotification(text: String, fraction: Float?, tick: Float, detail: String = text): android.app.Notification {
+        val stop = stopIntent(this)
+        val bar = AlarmArt.progressBar(fraction, tick)
+        val lines = detail.split("\n")
+
+        val small = RemoteViews(packageName, R.layout.notif_trip_progress_small).apply {
+            setTextViewText(R.id.notif_title, "Trip to $name")
+            setTextViewText(R.id.notif_text, text)
+            setImageViewBitmap(R.id.notif_bar, bar)
+        }
+        val big = RemoteViews(packageName, R.layout.notif_trip_progress_big).apply {
+            setTextViewText(R.id.notif_title, "Trip to $name")
+            setTextViewText(R.id.notif_text, lines.first())
+            if (lines.size > 1) setTextViewText(R.id.notif_text2, lines[1]) else setViewVisibility(R.id.notif_text2, android.view.View.GONE)
+            setImageViewBitmap(R.id.notif_bar, bar)
+            setOnClickPendingIntent(R.id.notif_stop, stop)
+        }
+        return NotificationCompat.Builder(this, Notifier.CH_TRIP)
+            .setSmallIcon(R.drawable.ic_stat_headsup)
+            .setColor(0xFF0F3638.toInt())
+            .setColorized(true)
+            // Plain text too, for the lock screen, watches and screen readers.
+            .setContentTitle("Trip to $name")
+            .setContentText(text)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(small)
+            .setCustomBigContentView(big)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this, 2, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
             )
-        )
-        .addAction(0, "Stop trip", stopIntent(this))
-        .build()
+            .build()
+    }
 
     private fun startRinging() {
         try {
@@ -267,6 +321,9 @@ class TripService : Service() {
             ctx, 3, Intent(ctx, TripService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+
+        /** Same wording as the app: "1 km", not "1.0 km". */
+        fun alarmLabel(m: Int) = if (m >= 1000 && m % 1000 == 0) "${m / 1000} km" else formatDistance(m)
 
         fun formatDistance(m: Int) = if (m >= 1000) String.format("%.1f km", m / 1000.0) else "$m m"
     }

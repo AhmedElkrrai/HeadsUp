@@ -81,12 +81,15 @@ import androidx.compose.ui.unit.sp
 import com.elkrrai.headsup.Permissions
 import com.elkrrai.headsup.R
 import com.elkrrai.headsup.data.Place
+import com.elkrrai.headsup.data.PlaceMode
+import com.elkrrai.headsup.data.Radius
 import com.elkrrai.headsup.data.Store
 import com.elkrrai.headsup.ui.theme.Bg
 import com.elkrrai.headsup.ui.theme.Ink
 import com.elkrrai.headsup.ui.theme.InkBright
 import com.elkrrai.headsup.ui.theme.Muted
 import com.elkrrai.headsup.ui.theme.NeonCyan
+import com.elkrrai.headsup.ui.theme.NeonCyanSoft
 import com.elkrrai.headsup.ui.theme.OnNeon
 import com.elkrrai.headsup.ui.theme.OutlineStrong
 import com.elkrrai.headsup.ui.theme.SurfaceCard
@@ -108,18 +111,22 @@ private fun uniqueName(base: String, ownId: String): String {
 
 /**
  * Full-screen map. A round back button and a search pill float on top; a sheet with the
- * name, radius and Save sits at the bottom. [forTrip]: picking a trip destination, so the
- * reminder-circle radius is hidden.
+ * name, radius and Save sits at the bottom. A place has two radii: a reminder radius (60 to 500 m) and a
+ * trip radius (500 m to 5 km). [lock]: opened for one purpose only (a trip destination, or a reminder's
+ * place), so the Reminder / Trip switch is hidden; null means free to switch between them.
  */
 @Composable
-fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
+fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, lock: PlaceMode?) {
+    val forTrip = lock == PlaceMode.Trip
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val existing = remember(placeId) { placeId?.let { Store.place(it) } }
 
     var name by remember { mutableStateOf(existing?.name ?: vm.placeNameSuggestion.orEmpty()) }
     var pin by remember { mutableStateOf(existing?.let { GeoPoint(it.lat, it.lng) }) }
-    var radius by remember { mutableIntStateOf(existing?.radiusM ?: 150) }
+    var mode by remember { mutableStateOf(lock ?: PlaceMode.Reminder) }
+    var reminderR by remember { mutableIntStateOf(existing?.reminderRadiusM ?: Radius.REMINDER_DEFAULT) }
+    var tripR by remember { mutableIntStateOf(existing?.tripRadiusM ?: Radius.TRIP_DEFAULT) }
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SearchHit>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
@@ -140,6 +147,8 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
     var zen by remember { mutableStateOf(false) }
     val sheetShown by animateFloatAsState(if (zen) 0f else 1f, tween(300, easing = FastOutSlowInEasing), label = "sheetShown")
     val focusManager = LocalFocusManager.current
+    // The Reminder / Trip switch folds away while you type the name, so the sheet fits above the keyboard.
+    val switchShown by animateFloatAsState(if (nameFocused) 0f else 1f, tween(200, easing = FastOutSlowInEasing), label = "switchShown")
 
     // The "tap the map" hint is shown for 3 s when the screen opens, then hidden. After 10 s with
     // no interaction at all it reappears for 8 s (once per idle period). Any touch or typing hides it.
@@ -293,7 +302,8 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
     ) {
         if (ready) {
             MapPicker(
-                pin = pin, radiusM = if (forTrip) vm.tripAlertM else radius, focus = focus ?: start, focusKey = focusKey,
+                pin = pin, radiusM = if (mode == PlaceMode.Trip) tripR else reminderR, dashedRing = mode == PlaceMode.Trip,
+                focus = focus ?: start, focusKey = focusKey,
                 focusZoom = focusZoom, me = me,
                 onPick = {
                     userTouchedMap = true
@@ -484,6 +494,12 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
             ) {
                 Box(Modifier.align(Alignment.CenterHorizontally).size(width = 40.dp, height = 4.dp).background(Color(0xFF3A4A5E), RoundedCornerShape(2.dp)))
 
+                if (lock == null) {
+                    Box(Modifier.collapseVertically(switchShown)) { ModeSwitch(mode, reminderR, tripR) { mode = it } }
+                } else if (forTrip) {
+                    TripChip()
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     SectionLabel("Name")
                     OutlinedTextField(
@@ -507,17 +523,27 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                     )
                 }
 
-                if (!forTrip) {
+                if (mode == PlaceMode.Reminder) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                             SectionLabel("Remind me within", Modifier.weight(1f))
-                            Text("$radius m", fontWeight = FontWeight.Bold, color = NeonCyan)
+                            Text("$reminderR m", fontWeight = FontWeight.Bold, color = NeonCyan)
                         }
                         NeonSlider(
-                            value = radius.toFloat(),
-                            onValueChange = { radius = ((it / 10f).toInt() * 10).coerceIn(50, 500) },
-                            range = 50f..500f,
+                            value = reminderR.toFloat(),
+                            onValueChange = {
+                                reminderR = ((it / 10f).toInt() * 10).coerceIn(Radius.REMINDER_MIN, Radius.REMINDER_MAX)
+                            },
+                            range = Radius.REMINDER_MIN.toFloat()..Radius.REMINDER_MAX.toFloat(),
                         )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                            SectionLabel("Alarm rings within", Modifier.weight(1f))
+                            Text(alarmLabel(tripR), fontWeight = FontWeight.Bold, color = NeonCyan)
+                        }
+                        StepSlider(Radius.TRIP_STOPS.indexOf(tripR).coerceAtLeast(0), true) { tripR = Radius.TRIP_STOPS[it] }
                     }
                 }
 
@@ -529,7 +555,7 @@ fun PlaceEditorScreen(vm: AppViewModel, placeId: String?, forTrip: Boolean) {
                             val id = existing?.id ?: Store.newId()
                             // Unnamed places get "Pinned place", then "Pinned place 2", 3… so they can be told apart.
                             val fallback = uniqueName(if (forTrip) "Destination" else "Pinned place", id)
-                            Store.upsertPlace(Place(id, name.trim().ifBlank { fallback }, p.latitude, p.longitude, radius))
+                            Store.upsertPlace(Place(id, name.trim().ifBlank { fallback }, p.latitude, p.longitude, reminderR, tripR))
                             // Only a newly created place becomes the selected one; editing another place shouldn't switch to it.
                             vm.closePlaceEditor(if (existing == null) id else null)
                         },
@@ -598,5 +624,52 @@ private fun NeonSlider(
             if (enabled) drawCircle(NeonCyan.copy(alpha = 0.25f), radius = 16.dp.toPx(), center = Offset(x, y))
             drawCircle(active, radius = 10.dp.toPx(), center = Offset(x, y))
         }
+    }
+}
+
+
+/** Reminder / Trip switch: each half also shows that mode's radius, so you can see both are set. */
+@Composable
+private fun ModeSwitch(mode: PlaceMode, reminderR: Int, tripR: Int, onSelect: (PlaceMode) -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(Bg).border(1.dp, OutlineStrong.copy(alpha = 0.6f), shape).padding(4.dp),
+    ) {
+        ModeItem("Reminder", "$reminderR m", R.drawable.ic_bell, mode == PlaceMode.Reminder, Modifier.weight(1f)) { onSelect(PlaceMode.Reminder) }
+        ModeItem("Trip", alarmLabel(tripR), R.drawable.ic_navigate, mode == PlaceMode.Trip, Modifier.weight(1f)) { onSelect(PlaceMode.Trip) }
+    }
+}
+
+@Composable
+private fun ModeItem(label: String, value: String, icon: Int, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    val main = if (selected) NeonCyan else Color(0xFFC7D3DF)
+    Row(
+        modifier.heightIn(min = 58.dp).clip(shape)
+            .then(if (selected) Modifier.background(NeonCyanSoft, shape).border(1.5.dp, NeonCyan, shape) else Modifier)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+    ) {
+        Icon(painterResource(icon), null, Modifier.size(20.dp), tint = main)
+        Column {
+            Text(label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = main)
+            Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (selected) NeonCyan else Color(0xFF8FA0B2))
+        }
+    }
+}
+
+/** Shown instead of the switch when the editor was opened to pick a trip destination. */
+@Composable
+private fun TripChip() {
+    val shape = RoundedCornerShape(20.dp)
+    Row(
+        Modifier.clip(shape).background(NeonCyanSoft, shape).border(1.dp, NeonCyan.copy(alpha = 0.4f), shape)
+            .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_navigate), null, Modifier.size(18.dp), tint = NeonCyan)
+        Text("Trip destination", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = NeonCyan)
     }
 }
