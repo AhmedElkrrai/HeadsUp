@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # needed to publish the APK as a release
 
 # A newer push cancels an older build of the same branch.
 concurrency:
@@ -54,3 +54,18 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      # GitHub zips workflow artifacts, so also publish the plain .apk as a release you can download directly:
+      # https://github.com/AhmedElkrrai/HeadsUp/releases/download/latest/HeadsUp.apk
+      - name: Publish the APK to the "latest" release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk HeadsUp.apk
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest HeadsUp.apk \
+            --title "Latest build" \
+            --notes "Debug APK built from commit ${GITHUB_SHA::7}. Download HeadsUp.apk below." \
+            --prerelease \
+            --target "$GITHUB_SHA"
